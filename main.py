@@ -1,9 +1,11 @@
+import json
 import time
 import requests
 
 import config as config
+import openai as openai
 
-API_URL = "https://api.openai.com/v1/threads"
+API_URL = openai.API_URL
 API_KEY = config.API_KEY
 ID_ASSISTENT = config.ID_ASSISTENT
 
@@ -13,17 +15,28 @@ run_id = None
 call_id = None
 function_arguments = None
 
-def validar_thread(thread_id):
-    if thread_id:
-        return True
-    else:
-        return False
 
 def criar_mensagem(pergunta):
     global thread_id
     url = f"{API_URL}/{thread_id}/messages"
     headers = get_headers()
     data = get_data_messagem(pergunta)
+    response = requests.post(url, headers=headers, json=data)
+    return response.json()
+
+def submit_tool_outputs(pergunta):
+    global thread_id
+    global run_id
+    url = f"{API_URL}/{thread_id}/runs/{run_id}/submit_tool_outputs"
+    headers = get_headers()
+    data = {
+            "tool_outputs": [
+                {
+                    "tool_call_id": f"{call_id}",
+                    "output": f"{pergunta}",
+                }
+            ]
+        }
     response = requests.post(url, headers=headers, json=data)
     return response.json()
 
@@ -116,6 +129,18 @@ def tratar_status(run_status):
     else:
         print(f"Status desconhecido: {run_status}")
 
+def search_mercado_livre(criteria):
+    url = "https://api.mercadolibre.com/sites/MLB/search"
+    descricao = criteria.get("criteria", {}).get("descricao")
+    limite = criteria.get("criteria", {}).get("limite")
+    if limite is None:
+        limite = 5
+    params = {
+        "q": descricao,
+        "limit": limite
+    }
+    return requests.get(url, params=params)
+
 def main():
     global thread_id
     global run_id
@@ -167,28 +192,36 @@ def main():
                     print("Requer ação.")
                     
                     global call_id
-                    call_id = (
-                        status_response.get('required_action') and
-                        status_response['required_action'].get('submit_tool_outputs') and
-                        status_response['required_action']['submit_tool_outputs'].get('tool_calls') and
-                        len(status_response['required_action']['submit_tool_outputs']['tool_calls']) > 0 and
-                        status_response['required_action']['submit_tool_outputs']['tool_calls'][0].get('id')
-                    )
+                    call_id = get_call_id(status_response)
                         
                     global function_arguments
-                    function_arguments = (
-                        status_response.get('required_action') and
-                        status_response['required_action'].get('submit_tool_outputs') and
-                        status_response['required_action']['submit_tool_outputs'].get('tool_calls') and
-                        len(status_response['required_action']['submit_tool_outputs']['tool_calls']) > 0 and
-                        status_response['required_action']['submit_tool_outputs']['tool_calls'][0].get('function') and
-                        status_response['required_action']['submit_tool_outputs']['tool_calls'][0]['function'].get('arguments')
-                    )
+                    function_arguments = get_function_arguments(status_response)
 
                     if function_arguments:
                         print(function_arguments)
-                        
-                    aguardando_resposta = False
+                    
+                    resposta = search_mercado_livre(json.loads(function_arguments))
+                    
+                    response_content = resposta.content
+                    
+                    response_content = json.loads(response_content)
+
+                    # Criando um array com as propriedades desejadas
+                    products_array = [
+                        {
+                            "title": product["title"],
+                            "price": product["price"],
+                            "permalink": product["permalink"]
+                        }
+                        for product in response_content["results"]
+                    ]
+                    
+                    products_text = "\n".join(
+                        f"{product['title']};{product['price']};{product['permalink']}" for product in products_array
+                    )
+                    
+                    response = submit_tool_outputs(products_text)
+                    
                 elif run_status == "queued":
                     print("Execução na fila.")
                 elif run_status == "in_progress":
@@ -197,6 +230,23 @@ def main():
                     print(f"Status desconhecido: {run_status}")
 
         
-        
+def get_function_arguments(status_response):
+    return  (
+                        status_response.get('required_action') and
+                        status_response['required_action'].get('submit_tool_outputs') and
+                        status_response['required_action']['submit_tool_outputs'].get('tool_calls') and
+                        len(status_response['required_action']['submit_tool_outputs']['tool_calls']) > 0 and
+                        status_response['required_action']['submit_tool_outputs']['tool_calls'][0].get('function') and
+                        status_response['required_action']['submit_tool_outputs']['tool_calls'][0]['function'].get('arguments')
+                     )
+def get_call_id(status_response):
+    return  (
+                status_response.get('required_action') and
+                status_response['required_action'].get('submit_tool_outputs') and
+                status_response['required_action']['submit_tool_outputs'].get('tool_calls') and
+                len(status_response['required_action']['submit_tool_outputs']['tool_calls']) > 0 and
+                status_response['required_action']['submit_tool_outputs']['tool_calls'][0].get('id')
+            )
+
 if __name__ == "__main__":
     main()
