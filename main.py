@@ -231,6 +231,9 @@ def main():
 
         
 def get_function_arguments(status_response):
+    # Arguments: data.required_action.submit_tool_outputs.tool_calls[0].function.arguments
+
+
     return  (
                         status_response.get('required_action') and
                         status_response['required_action'].get('submit_tool_outputs') and
@@ -240,6 +243,9 @@ def get_function_arguments(status_response):
                         status_response['required_action']['submit_tool_outputs']['tool_calls'][0]['function'].get('arguments')
                      )
 def get_call_id(status_response):
+    # Call id: data.required_action.submit_tool_outputs.tool_calls[0].id
+
+
     return  (
                 status_response.get('required_action') and
                 status_response['required_action'].get('submit_tool_outputs') and
